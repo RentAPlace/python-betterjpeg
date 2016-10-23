@@ -4,7 +4,6 @@ import concurrent.futures
 import functools
 import itertools
 import logging
-import multiprocessing
 import os
 import os.path
 import subprocess
@@ -23,6 +22,7 @@ HELP = {
     'log':              'Where to log execution informations.',
     'workers':          'Number of parallel workers.'
 }
+
 
 @click.command()
 @click.argument('directory', type=click.Path(exists=True))
@@ -68,8 +68,8 @@ def cli(directory, y, v, log=None, workers=None):
 def optimize_routine(input=None, output=None, logger=None):
     with LOG_LOCK:
         logger.debug('input file "{0}"'.format(input))
-    subprocess.call('cjpeg "{0}" > "{1}"'.format(input , output), shell=True)
-    os.remove(input);
+    subprocess.call('cjpeg "{0}" > "{1}"'.format(input, output), shell=True)
+    os.remove(input)
     os.rename(output, input)
 
 
@@ -101,8 +101,10 @@ def find_files(path, extensions):
     files_abspaths = tuple(os.path.abspath(image) for image in filtered_files)
     return files_abspaths
 
+
 def get_filesize(path):
     return os.stat(path).st_size
+
 
 def pretty_filesize(bytes):
     if bytes >= 1024**3:
@@ -113,6 +115,7 @@ def pretty_filesize(bytes):
         return '{:.2f}'.format(bytes/1024) + 'KB'
     else:
         return '{}B'.format(bytes)
+
 
 def filter_extension(extensions, filename):
     _, filename = os.path.split(filename)
