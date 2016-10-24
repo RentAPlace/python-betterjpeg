@@ -1,5 +1,3 @@
-import click
-
 import concurrent.futures
 import functools
 import itertools
@@ -11,30 +9,34 @@ import sys
 import threading
 import time
 
+import click
+
+from . import __description__, __pkgname__, __version__
+
 EXTS = ('jpeg', 'jpg', 'JPEG', 'JPG')
 COUNT_WARNING_LIMIT = 50
 SIZE_WARNING_LIMIT = 100 * (1024**2)  # 100MB
 LOG_LOCK = threading.RLock()
 
 HELP = {
-    'ignore_warnings':  'Supress all user prompts.',
-    'verbose':          'Show execution related informations.',
+    'additional-args':  'Additional arguments to pass to CJPEG.',
     'log':              'Where to log execution informations.',
-    'workers':          'Number of parallel workers.'
+    'verbose':          'Show execution related informations.',
+    'workers':          'Number of parallel workers.',
+    'ignore-warnings':  'Supress all user prompts.'
 }
 
 
 @click.command()
 @click.argument('directory', type=click.Path(exists=True))
-@click.option('-y/--ignore-warnings', is_flag=True, help=HELP['ignore_warnings'])
-@click.option('-v/--verbose', is_flag=True, help=HELP['verbose'])
-@click.option('--log', type=click.Path(exists=False, file_okay=True), help=HELP['log'])
-@click.option('--workers', type=click.INT, default=2, help=HELP['workers'])
-def cli(directory, y, v, log=None, workers=None):
+@click.option('-a', '--additional-args', type=click.STRING, help=HELP['additional-args'])
+@click.option('-l', '--log', type=click.Path(exists=False, file_okay=True), help=HELP['log'])
+@click.option('-v', '--verbose', is_flag=True, help=HELP['verbose'])
+@click.option('-w', '--workers', type=click.INT, default=2, help=HELP['workers'])
+@click.option('-y', '--ignore-warnings', is_flag=True, help=HELP['ignore-warnings'])
+@click.version_option()
+def cli(directory, additional_args=None, log=None, verbose=None, workers=None, ignore_warnings=None):
     print('Welcome to BetterJPEG...')
-
-    ignore_warnings = y
-    verbose = v
 
     logger = init_logger(verbose, log)
 
@@ -51,9 +53,10 @@ def cli(directory, y, v, log=None, workers=None):
     start_time = time.time()
 
     io_tasks = zip(files, output_files)
+    global_task_context = {'args': additional_args, 'logger': logger}
     with concurrent.futures.ThreadPoolExecutor(workers) as executor:
-        task_contexts = ({'input': input, 'output': output} for input, output in io_tasks)
-        pending_tasks = tuple(executor.submit(optimize_routine, logger=logger, **ctx) for ctx in task_contexts)
+        task_contexts = (merge_dictionaries(global_task_context, {'input': input, 'output': output}) for input, output in io_tasks)
+        pending_tasks = tuple(executor.submit(optimize_routine, **ctx) for ctx in task_contexts)
         concurrent.futures.wait(pending_tasks)
 
     end_time = time.time()
@@ -65,12 +68,19 @@ def cli(directory, y, v, log=None, workers=None):
     print('Execution took {0:.2f} seconds.'.format(timespan))
 
 
-def optimize_routine(input=None, output=None, logger=None):
+def optimize_routine(input=None, output=None, args=None, logger=None):
+    if not args: args = ""
     with LOG_LOCK:
         logger.debug('input file "{0}"'.format(input))
-    subprocess.call('cjpeg "{0}" > "{1}"'.format(input, output), shell=True)
-    os.remove(input)
-    os.rename(output, input)
+    command = 'cjpeg {0} "{1}" > "{2}"'.format(args, input, output)
+    subprocess.call(command, stderr=subprocess.DEVNULL, shell=True)
+    if get_filesize(output) > 0:
+        os.remove(input)
+        os.rename(output, input)
+    else:
+        with LOG_LOCK:
+            logger.error('Optimization unsuccessful for input "{0}", discarded changes'.format(input))
+        os.remove(output)
 
 
 def init_logger(verbose, log):
@@ -116,8 +126,13 @@ def pretty_filesize(bytes):
     else:
         return '{}B'.format(bytes)
 
-
 def filter_extension(extensions, filename):
     _, filename = os.path.split(filename)
     _, file_extension = os.path.splitext(filename)
     return any(extension in file_extension for extension in extensions)
+
+
+def merge_dictionaries(one, two):
+    merged = one.copy()
+    merged.update(two)
+    return merged
