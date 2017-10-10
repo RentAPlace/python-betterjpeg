@@ -1,1 +1,2 @@
+-e git://github.com/RentAPlace/python-common.git@ecc42605f98e6566c09a2670d0f9bbe0545b7c4f#egg=python-common
 click==6.0
